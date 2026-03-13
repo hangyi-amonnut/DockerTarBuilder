@@ -8,54 +8,63 @@ on:
         required: true
         default: 'alpine:latest,alpine/curl,busybox:stable-glibc'
 
+permissions:
+  contents: write
+
 jobs:
   pull_and_package:
     runs-on: ubuntu-22.04
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Pull Docker Images and Package
+        shell: bash
         run: |
           images="${{ github.event.inputs.docker_images }}"
           IFS=',' read -r -a image_array <<< "$images"
+
           for image in "${image_array[@]}"; do
-            docker pull "${image}" --platform "linux/arm64"
+            image="$(echo "$image" | xargs)"
+            [ -z "$image" ] && continue
+
+            docker pull --platform linux/arm64 "$image"
+
             image_name="${image//\//_}"
             image_name="${image_name//:/_}"
-            docker save "${image}" -o "${image_name}-arm64.tar"
+
+            docker save "$image" -o "${image_name}-arm64.tar"
             gzip -c "${image_name}-arm64.tar" > "${image_name}-arm64.tar.gz"
-            rm "${image_name}-arm64.tar"
+            rm -f "${image_name}-arm64.tar"
           done
 
-      - name: List generated files (debug step)
+      - name: List generated files and set release name
+        shell: bash
         run: |
           echo "Preparing docker images list (.tar.gz) files:"
-          find $GITHUB_WORKSPACE -name "*.tar.gz"
-          release_name=$(TZ="Asia/Shanghai" date +'%Y-%m-%d %H:%M Build')
-          echo "RELEASE_NAME=$release_name" >> $GITHUB_ENV
+          find "$GITHUB_WORKSPACE" -name "*.tar.gz"
 
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@master
+          release_name=$(TZ="Asia/Shanghai" date +'%Y-%m-%d %H:%M Build')
+          echo "RELEASE_NAME=$release_name" >> "$GITHUB_ENV"
+
+      - name: Create GitHub Release and upload assets
+        uses: softprops/action-gh-release@v2.5.0
         with:
           tag_name: DockerTarBuilder-ARM64
           name: ${{ env.RELEASE_NAME }} for ARM64
           body: |
-            [![Github](https://img.shields.io/badge/RELEASE:DockerTarBuilder-123456?logo=github&logoColor=fff&labelColor=green&style=for-the-badge)](https://www.bilibili.com/video/BV1EZ421M7mL) [![Github](https://img.shields.io/badge/国内加速站下载-FC7C0D?logo=github&logoColor=fff&labelColor=000&style=for-the-badge)](https://wkdaily.cpolar.top/archives/1)
+            [![Github](https://img.shields.io/badge/RELEASE:DockerTarBuilder-123456?logo=github&logoColor=fff&labelColor=green&style=for-the-badge)](https://www.bilibili.com/video/BV1EZ421M7mL)
+            [![Github](https://img.shields.io/badge/国内加速站下载-FC7C0D?logo=github&logoColor=fff&labelColor=000&style=for-the-badge)](https://wkdaily.cpolar.top/archives/1)
+
             ### How to use? For example
-            `docker load -i alpine_latest.tar.gz `
+            `docker load -i alpine_latest-arm64.tar.gz`
+
             ### Video teaching
             [![Bilibili](https://img.shields.io/badge/Bilibili-123456?logo=bilibili&logoColor=fff&labelColor=fb7299)](https://www.bilibili.com/video/BV1yyq6YREdF)
+          files: ${{ github.workspace }}/*.tar.gz
           draft: false
           prerelease: false
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Upload Docker images as release assets
-        uses: softprops/action-gh-release@v2.1.0
-        with:
-          tag_name: DockerTarBuilder-ARM64
-          files: ${{ github.workspace }}/*.tar.gz
           token: ${{ secrets.GITHUB_TOKEN }}
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
